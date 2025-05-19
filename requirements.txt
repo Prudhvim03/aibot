@@ -1,10 +1,30 @@
+# Streamlit web app
 streamlit>=1.30.0
+
+# Image processing
 Pillow>=10.0.0
+
+# CrewAI agent framework
 crewai>=0.29.0
+
+# LangChain for RAG and LLM orchestration
 langchain>=0.2.0
 langchain-community>=0.2.0
+
+# Qdrant vector database client
 qdrant-client>=1.7.0
+
+# Sentence Transformers for embeddings
 sentence-transformers>=2.5.1
+
+# HTTP requests
 requests>=2.31.0
+
+# For managing environment variables
 python-dotenv>=1.0.1
+
+# Logging (optional, for better debugging)
 loguru>=0.7.2
+
+# For typing and compatibility (optional)
+typing-extensions>=4.10.0
