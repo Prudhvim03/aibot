@@ -1,5 +1,5 @@
 # app.py
-# Indian Farming AI Assistant
+# Deep Indian Farming AI Agent (CrewAI + LangChain + Streamlit)
 # Created by Prudhvi
 
 import os
@@ -7,129 +7,149 @@ import streamlit as st
 from dotenv import load_dotenv
 from PIL import Image
 
-# Load environment variables from .env
+# Load environment variables
 load_dotenv()
-
-# Import AI frameworks
-from crewai import Crew, Agent, Task, Process
-from langchain.embeddings import HuggingFaceEmbeddings
-from langchain.vectorstores import Qdrant
-from langchain.llms import OpenAI  # Use OpenAI as placeholder for Groq
-import requests
-
-# --- CONFIGURATION ---
-
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
-QDRANT_URL = os.getenv("QDRANT_URL")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
+QDRANT_URL = os.getenv("QDRANT_URL")
 
-# --- EMBEDDINGS & VECTOR DB SETUP ---
+# --- LangChain Components ---
+from langchain.embeddings import HuggingFaceEmbeddings
+from langchain.vectorstores import Qdrant
+from langchain.llms import OpenAI  # Replace with GroqLLM when available
+from langchain.memory import ConversationBufferMemory
+from langchain.prompts import PromptTemplate
+from langchain.tools import BaseTool
 
-embeddings = HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2')
-vector_db = Qdrant(
-    url=QDRANT_URL,
-    api_key=QDRANT_API_KEY,
-    embeddings=embeddings,
-    collection_name="farming_knowledge"
+# --- CrewAI Components ---
+from crewai import Agent, Task, Crew, Process
+
+# --- Embeddings and Vector DB ---
+@st.cache_resource(show_spinner="Connecting to Knowledge Base...")
+def get_vector_db():
+    embeddings = HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2')
+    db = Qdrant(
+        url=QDRANT_URL,
+        api_key=QDRANT_API_KEY,
+        embeddings=embeddings,
+        collection_name="farming_knowledge"
+    )
+    return db
+
+vector_db = get_vector_db()
+
+# --- LLM Setup (Replace with GroqLLM when available) ---
+llm = OpenAI(openai_api_key=GROQ_API_KEY, temperature=0.2)
+
+# --- Prompt Template ---
+prompt_template = PromptTemplate(
+    input_variables=["context", "question"],
+    template=(
+        "You are a helpful Indian farming assistant. "
+        "Use the context below to answer the user's question in simple, actionable language.\n"
+        "Context: {context}\n"
+        "Question: {question}\n"
+        "Answer:"
+    ),
 )
 
-# --- LLM SETUP (replace with Groq/OpenAI as needed) ---
+# --- LangChain QA Chain ---
+from langchain.chains import RetrievalQA
 
-llm = OpenAI(api_key=GROQ_API_KEY)  # Replace with GroqLLM if available
+qa_chain = RetrievalQA.from_chain_type(
+    llm=llm,
+    chain_type="stuff",
+    retriever=vector_db.as_retriever(),
+    return_source_documents=True,
+    chain_type_kwargs={"prompt": prompt_template}
+)
 
-# --- AGENT DEFINITIONS ---
+# --- Tavily Web Search Tool (Placeholder) ---
+class TavilySearchTool(BaseTool):
+    name = "TavilyWebSearch"
+    description = "Searches the web for up-to-date farming information using Tavily API."
 
-class RouterAgent(Agent):
-    def act(self, query, context=None):
-        if context and context.get("image"):
-            return "image_analysis"
-        if any(word in query.lower() for word in ["image", "disease", "leaf", "spot", "upload"]):
-            return "image_analysis"
-        return "text_query"
+    def _run(self, query: str):
+        # Replace with actual Tavily API call
+        return f"[Tavily search results for: {query}]"
 
-class RetrieverAgent(Agent):
-    def act(self, query, context=None):
-        docs = vector_db.similarity_search(query, k=3)
-        # Placeholder for Tavily web search
-        web_results = []
-        return {"docs": docs, "web_results": web_results}
+    async def _arun(self, query: str):
+        return self._run(query)
 
-class GraderAgent(Agent):
-    def act(self, retrieved, context=None):
-        filtered_docs = [doc for doc in retrieved["docs"] if len(doc.page_content) > 50]
-        return {"docs": filtered_docs, "web_results": retrieved["web_results"]}
+# --- Image Analysis Agent (Placeholder) ---
+def analyze_image(image: Image.Image) -> str:
+    # Replace with actual vision model
+    return "Image analysis is not yet implemented. Please describe your crop issue in text."
 
-class HallucinationGrader(Agent):
-    def act(self, answer, context=None):
-        if "not sure" in answer.lower() or "cannot" in answer.lower():
-            return False
-        return True
+# --- Voice Assistant Agent (Placeholder) ---
+def handle_voice_input():
+    # Integrate LiveKit API for speech-to-text
+    return None
 
-class AnswerGrader(Agent):
-    def act(self, answer, context=None):
-        return len(answer.split()) > 10
+def handle_voice_output(text):
+    # Integrate LiveKit API for text-to-speech
+    pass
 
-class ImageAnalyzerAgent(Agent):
-    def act(self, image, context=None):
-        # Placeholder: Integrate with real vision model for production
-        return "Detected possible leaf blight. Suggest spraying copper-based fungicide."
+# --- CrewAI Agents ---
+memory = ConversationBufferMemory()
 
-# --- TASK DEFINITIONS ---
+chat_agent = Agent(
+    role="Farming Chat Assistant",
+    goal="Provide deep, personalized farming support using RAG, web search, and context.",
+    backstory="Expert in Indian agriculture, always friendly and clear.",
+    tools=[TavilySearchTool()],
+    memory=memory,
+    llm=llm
+)
 
-def router_task(query, context):
-    return RouterAgent().act(query, context)
+image_agent = Agent(
+    role="Image Analyzer",
+    goal="Diagnose crop diseases or issues from images.",
+    backstory="Expert in plant pathology.",
+    tools=[],
+    memory=None,
+    llm=llm
+)
 
-def retriever_task(query, context):
-    return RetrieverAgent().act(query, context)
+voice_agent = Agent(
+    role="Voice Assistant",
+    goal="Enable voice input and output for accessibility.",
+    backstory="Helps farmers interact hands-free.",
+    tools=[],
+    memory=None,
+    llm=llm
+)
 
-def grader_task(retrieved, context):
-    return GraderAgent().act(retrieved, context)
+# --- CrewAI Tasks ---
+chat_task = Task(
+    agent=chat_agent,
+    description="Answer farming questions using knowledge base, web search, and context.",
+    expected_output="Clear, actionable farming advice."
+)
 
-def hallucination_task(answer, context):
-    return HallucinationGrader().act(answer, context)
+image_task = Task(
+    agent=image_agent,
+    description="Analyze uploaded crop images for disease or issue detection.",
+    expected_output="Diagnosis and suggested action."
+)
 
-def answer_task(query, context):
-    if context.get("route") == "image_analysis":
-        return ImageAnalyzerAgent().act(context.get("image"), context)
-    docs = context.get("graded", {}).get("docs", [])
-    context_text = " ".join([doc.page_content for doc in docs])
-    prompt = (
-        f"You are a personal Indian farming support agent. "
-        f"User's question: {query}\n\n"
-        f"Knowledge base: {context_text}\n\n"
-        f"Give a clear, actionable, and friendly answer in simple language."
-    )
-    return llm(prompt)
+voice_task = Task(
+    agent=voice_agent,
+    description="Handle voice input and output for the assistant.",
+    expected_output="Transcribed input and spoken output."
+)
 
-# --- CREW DEFINITION ---
+# --- CrewAI Orchestration ---
+crew = Crew(
+    agents=[chat_agent, image_agent, voice_agent],
+    tasks=[chat_task, image_task, voice_task],
+    process=Process.sequential,
+    verbose=False
+)
 
-def build_crew():
-    return Crew(
-        agents=[
-            RouterAgent(),
-            RetrieverAgent(),
-            GraderAgent(),
-            HallucinationGrader(),
-            AnswerGrader(),
-            ImageAnalyzerAgent(),
-        ],
-        tasks=[
-            router_task,
-            retriever_task,
-            grader_task,
-            hallucination_task,
-            answer_task
-        ],
-        process=Process.sequential,
-        verbose=False,
-        cache=True,
-        planning=True
-    )
-
-# --- STREAMLIT UI ---
-
+# --- Streamlit UI ---
 st.set_page_config(page_title="Indian Farming AI Assistant", layout="wide")
 st.title("🌾 Indian Farming AI Assistant")
 st.caption("Created by Prudhvi")
@@ -137,46 +157,34 @@ st.caption("Created by Prudhvi")
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
-crew = build_crew()
-
-def handle_query(query, image=None):
-    context = {}
-    if image:
-        context["image"] = image
-    context["route"] = router_task(query, context)
-    if context["route"] == "image_analysis":
-        answer = answer_task(query, context)
-    else:
-        retrieved = retriever_task(query, context)
-        graded = grader_task(retrieved, context)
-        context["graded"] = graded
-        answer = answer_task(query, context)
-    # Hallucination and grading
-    if not hallucination_task(answer, context):
-        answer = "Sorry, I am not confident in my answer. Please consult a local expert."
-    elif not AnswerGrader().act(answer, context):
-        answer = "I need more information to provide a complete answer."
-    return answer
-
+# --- Main Chat Interface ---
 with st.form("chat_form", clear_on_submit=True):
     user_input = st.text_input("Ask your farming question (voice or text):", "")
-    image_file = st.file_uploader("Upload crop image (optional)", type=["jpg", "jpeg", "png"])
+    image_file = st.file_uploader("Or upload a crop image (optional)", type=["jpg", "jpeg", "png"])
     submit = st.form_submit_button("Send")
 
 if submit and (user_input or image_file):
-    img = None
     if image_file:
         img = Image.open(image_file)
-    answer = handle_query(user_input, img)
-    st.session_state.chat_history.append(("user", user_input))
-    st.session_state.chat_history.append(("agent", answer))
+        diagnosis = analyze_image(img)
+        st.session_state.chat_history.append(("user", "[Image uploaded]"))
+        st.session_state.chat_history.append(("agent", diagnosis))
+    if user_input:
+        # Use CrewAI to orchestrate agents
+        # For demo, use LangChain QA and Tavily tool directly
+        result = qa_chain({"query": user_input})
+        answer = result["result"]
+        st.session_state.chat_history.append(("user", user_input))
+        st.session_state.chat_history.append(("agent", answer))
 
+# --- Display Chat History ---
 for role, text in st.session_state.chat_history:
     if role == "user":
         st.markdown(f"**👨‍🌾 You:** {text}")
     else:
         st.markdown(f"**🤖 Agent:** {text}")
 
-st.caption("Powered by CrewAI, LangChain, Qdrant, and HuggingFace. For Indian farmers.")
+st.info("This assistant uses CrewAI, LangChain, Qdrant, and (optionally) Groq, Tavily, and LiveKit for Indian farming support.")
+st.caption("For best results, describe your crop or farming issue in detail.")
 
 # --- END OF FILE ---
