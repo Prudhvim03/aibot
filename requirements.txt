@@ -26,5 +26,5 @@ python-dotenv>=1.0.1
 # Logging (optional, for better debugging)
 loguru>=0.7.2
 
-# For typing and compatibility (optional)
-typing-extensions>=4.10.0
+# ChromaDB (required by CrewAI, even if not used directly)
+chromadb>=0.4.24
