@@ -1,5 +1,6 @@
 streamlit
 Pillow
+crewai
 langchain
 langchain-community
 qdrant-client
@@ -7,4 +8,4 @@ sentence-transformers
 requests
 python-dotenv
 loguru
-git+https://github.com/joaomdmoura/crewAI.git
+chromadb
