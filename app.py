@@ -1,30 +1,32 @@
-# Indian Farming AI Assistant - End-to-End Production Code
+# app.py
+# Indian Farming AI Assistant
 # Created by Prudhvi
 
 import os
-import logging
-from typing import Optional, Dict, Any, List
-from PIL import Image
 import streamlit as st
+from dotenv import load_dotenv
+from PIL import Image
 
-# --- Import AI Frameworks (Replace with your actual wrappers/APIs) ---
+# Load environment variables from .env
+load_dotenv()
+
+# Import AI frameworks
 from crewai import Crew, Agent, Task, Process
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import Qdrant
-from langchain.llms import GroqLLM  # Hypothetical, replace with actual Groq LLM wrapper
-from tavily import TavilyClient     # Hypothetical, replace with actual Tavily API wrapper
-from livekit import LiveKitClient   # Hypothetical, replace with actual LiveKit API wrapper
+from langchain.llms import OpenAI  # Use OpenAI as placeholder for Groq
+import requests
 
-# --- CONFIGURATION & INITIALIZATION ---
+# --- CONFIGURATION ---
 
-# Environment variables for API keys and endpoints
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
 QDRANT_URL = os.getenv("QDRANT_URL")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 
-# Initialize Embeddings and Vector DB
+# --- EMBEDDINGS & VECTOR DB SETUP ---
+
 embeddings = HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2')
 vector_db = Qdrant(
     url=QDRANT_URL,
@@ -33,16 +35,14 @@ vector_db = Qdrant(
     collection_name="farming_knowledge"
 )
 
-# Initialize LLM, Web Search, and Voice APIs
-llm = GroqLLM(api_key=GROQ_API_KEY)
-tavily = TavilyClient(api_key=TAVILY_API_KEY)
-livekit = LiveKitClient(api_key=LIVEKIT_API_KEY)
+# --- LLM SETUP (replace with Groq/OpenAI as needed) ---
+
+llm = OpenAI(api_key=GROQ_API_KEY)  # Replace with GroqLLM if available
 
 # --- AGENT DEFINITIONS ---
 
 class RouterAgent(Agent):
-    """Routes the user query to the appropriate agent based on content."""
-    def act(self, query: str, context: Optional[Dict[str, Any]] = None) -> str:
+    def act(self, query, context=None):
         if context and context.get("image"):
             return "image_analysis"
         if any(word in query.lower() for word in ["image", "disease", "leaf", "spot", "upload"]):
@@ -50,70 +50,62 @@ class RouterAgent(Agent):
         return "text_query"
 
 class RetrieverAgent(Agent):
-    """Retrieves relevant documents from vector DB and web."""
-    def act(self, query: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def act(self, query, context=None):
         docs = vector_db.similarity_search(query, k=3)
-        web_results = tavily.search(query)
+        # Placeholder for Tavily web search
+        web_results = []
         return {"docs": docs, "web_results": web_results}
 
 class GraderAgent(Agent):
-    """Filters and grades retrieved documents for relevance."""
-    def act(self, retrieved: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def act(self, retrieved, context=None):
         filtered_docs = [doc for doc in retrieved["docs"] if len(doc.page_content) > 50]
         return {"docs": filtered_docs, "web_results": retrieved["web_results"]}
 
 class HallucinationGrader(Agent):
-    """Detects hallucinations in the LLM's answer."""
-    def act(self, answer: str, context: Optional[Dict[str, Any]] = None) -> bool:
-        # Placeholder: Replace with a robust hallucination detection model
+    def act(self, answer, context=None):
         if "not sure" in answer.lower() or "cannot" in answer.lower():
             return False
         return True
 
 class AnswerGrader(Agent):
-    """Ensures the answer is clear, complete, and actionable."""
-    def act(self, answer: str, context: Optional[Dict[str, Any]] = None) -> bool:
+    def act(self, answer, context=None):
         return len(answer.split()) > 10
 
 class ImageAnalyzerAgent(Agent):
-    """Analyzes uploaded crop images for diseases or issues."""
-    def act(self, image: Image.Image, context: Optional[Dict[str, Any]] = None) -> str:
-        # Placeholder: Integrate with a real vision model for production
+    def act(self, image, context=None):
+        # Placeholder: Integrate with real vision model for production
         return "Detected possible leaf blight. Suggest spraying copper-based fungicide."
 
 # --- TASK DEFINITIONS ---
 
-def router_task(query: str, context: Dict[str, Any]) -> str:
+def router_task(query, context):
     return RouterAgent().act(query, context)
 
-def retriever_task(query: str, context: Dict[str, Any]) -> Dict[str, Any]:
+def retriever_task(query, context):
     return RetrieverAgent().act(query, context)
 
-def grader_task(retrieved: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+def grader_task(retrieved, context):
     return GraderAgent().act(retrieved, context)
 
-def hallucination_task(answer: str, context: Dict[str, Any]) -> bool:
+def hallucination_task(answer, context):
     return HallucinationGrader().act(answer, context)
 
-def answer_task(query: str, context: Dict[str, Any]) -> str:
+def answer_task(query, context):
     if context.get("route") == "image_analysis":
         return ImageAnalyzerAgent().act(context.get("image"), context)
     docs = context.get("graded", {}).get("docs", [])
-    web = context.get("graded", {}).get("web_results", [])
     context_text = " ".join([doc.page_content for doc in docs])
-    web_text = " ".join([res['snippet'] for res in web])
     prompt = (
         f"You are a personal Indian farming support agent. "
         f"User's question: {query}\n\n"
         f"Knowledge base: {context_text}\n\n"
-        f"Web search: {web_text}\n\n"
         f"Give a clear, actionable, and friendly answer in simple language."
     )
-    return llm.generate(prompt)
+    return llm(prompt)
 
 # --- CREW DEFINITION ---
 
-def build_crew() -> Crew:
+def build_crew():
     return Crew(
         agents=[
             RouterAgent(),
@@ -131,12 +123,12 @@ def build_crew() -> Crew:
             answer_task
         ],
         process=Process.sequential,
-        verbose=True,
+        verbose=False,
         cache=True,
         planning=True
     )
 
-# --- STREAMLIT UI SETUP ---
+# --- STREAMLIT UI ---
 
 st.set_page_config(page_title="Indian Farming AI Assistant", layout="wide")
 st.title("🌾 Indian Farming AI Assistant")
@@ -147,8 +139,8 @@ if "chat_history" not in st.session_state:
 
 crew = build_crew()
 
-def handle_query(query: str, image: Optional[Image.Image] = None) -> str:
-    context: Dict[str, Any] = {}
+def handle_query(query, image=None):
+    context = {}
     if image:
         context["image"] = image
     context["route"] = router_task(query, context)
@@ -166,8 +158,6 @@ def handle_query(query: str, image: Optional[Image.Image] = None) -> str:
         answer = "I need more information to provide a complete answer."
     return answer
 
-# --- MAIN CHAT INTERFACE ---
-
 with st.form("chat_form", clear_on_submit=True):
     user_input = st.text_input("Ask your farming question (voice or text):", "")
     image_file = st.file_uploader("Upload crop image (optional)", type=["jpg", "jpeg", "png"])
@@ -181,19 +171,12 @@ if submit and (user_input or image_file):
     st.session_state.chat_history.append(("user", user_input))
     st.session_state.chat_history.append(("agent", answer))
 
-# --- DISPLAY CHAT HISTORY ---
-
 for role, text in st.session_state.chat_history:
     if role == "user":
         st.markdown(f"**👨‍🌾 You:** {text}")
     else:
         st.markdown(f"**🤖 Agent:** {text}")
 
-# --- LIVEKIT VOICE CHAT (Placeholder) ---
-
-if st.button("🎤 Start Voice Chat"):
-    st.info("Voice chat feature coming soon. (Integrate LiveKit API here)")
-
-st.caption("Powered by CrewAI, LangChain, Groq, Tavily, LiveKit. For Indian farmers.")
+st.caption("Powered by CrewAI, LangChain, Qdrant, and HuggingFace. For Indian farmers.")
 
 # --- END OF FILE ---
