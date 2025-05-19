@@ -1,0 +1,36 @@
+# Main web UI
+streamlit>=1.30.0
+
+# Image processing
+Pillow>=10.0.0
+
+# CrewAI agent framework
+crewai>=0.29.0
+
+# LangChain for RAG and LLM orchestration
+langchain>=0.2.0
+langchain-community>=0.2.0
+
+# Vector database client for Qdrant
+qdrant-client>=1.7.0
+
+# Sentence Transformers for embeddings
+sentence-transformers>=2.5.1
+
+# LLM API (Groq) - replace with actual package name if available
+groq  # If not available, use openai or your custom wrapper
+
+# Web search API (Tavily) - replace with actual package name if available
+tavily  # If not available, use requests or your custom wrapper
+
+# Voice API (LiveKit) - replace with actual package name if available
+livekit  # If not available, use requests/websockets or your custom wrapper
+
+# HTTP requests
+requests>=2.31.0
+
+# For managing environment variables (recommended)
+python-dotenv>=1.0.1
+
+# Logging (optional, for better debugging)
+loguru>=0.7.2
